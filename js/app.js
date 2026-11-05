@@ -90,21 +90,66 @@
   // =================================================================
   // API
   // =================================================================
+  var useResultMode = false;
+
+  function newRid() {
+    var a = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+
+  function tunda(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  /** Ambil hasil POST lewat GET; dicoba ulang beberapa kali selama server masih memproses */
+  function ambilHasil(rid, coba) {
+    coba = coba || 0;
+    return fetch(GAS_URL + '?action=result&id=' + encodeURIComponent(rid))
+      .then(function (r) {
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        return r.json();
+      })
+      .then(function (res) {
+        if (res && res.code === 'PENDING') {
+          if (coba >= 25) throw new Error('Server tidak merespons. Periksa koneksi lalu coba lagi.');
+          return tunda(coba < 5 ? 600 : 1500).then(function () { return ambilHasil(rid, coba + 1); });
+        }
+        return res;
+      })
+      .catch(function (err) {
+        if (err instanceof TypeError) {
+          throw new Error('Tidak bisa terhubung ke server Apps Script. Pastikan Web App di-deploy dengan akses "Anyone".');
+        }
+        throw err;
+      });
+  }
+
   function api(action, data, extra) {
     if (!GAS_URL || GAS_URL.indexOf('PASTE_') === 0) {
       return Promise.reject(new Error('GAS_URL belum diisi di js/config.js'));
     }
-    var body = Object.assign({ action: action, data: data || {} }, extra || {});
+    var body = Object.assign({ action: action, data: data || {}, rid: newRid() }, extra || {});
     if (state.session && action !== 'login') body.token = state.session.token;
-    return fetch(GAS_URL, {
+    var opt = {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body),
-      redirect: 'follow'
-    }).then(function (r) {
-      if (!r.ok) throw new Error('Server error ' + r.status);
-      return r.json();
-    }).then(function (res) {
+      body: JSON.stringify(body)
+    };
+
+    // Mode cadangan: sebagian browser (mis. Firefox dengan pengaturan tertentu) mengirim ulang POST
+    // setelah redirect 302 Apps Script sehingga kena 405/CORS. Di mode ini POST tidak mengikuti
+    // redirect, lalu hasilnya diambil lewat GET ?action=result&id=<rid> (GET selalu aman).
+    var kirim = useResultMode
+      ? fetch(GAS_URL, Object.assign({ redirect: 'manual' }, opt)).then(function () { return ambilHasil(body.rid); })
+      : fetch(GAS_URL, Object.assign({ redirect: 'follow' }, opt)).then(function (r) {
+          if (!r.ok) throw new Error('Server error ' + r.status);
+          return r.json();
+        }).catch(function (err) {
+          if (!(err instanceof TypeError)) throw err;   // bukan masalah jaringan/CORS
+          useResultMode = true;
+          return ambilHasil(body.rid);
+        });
+
+    return kirim.then(function (res) {
       if (!res.success) {
         if (res.code === 'AUTH') { logout(true); }
         var e = new Error(res.message || 'Terjadi kesalahan');
