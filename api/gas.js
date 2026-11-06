@@ -6,7 +6,9 @@
  * redirect 302 dengan benar (POST → lalu GET ke alamat echo).
  * Target dibatasi hanya ke Web App Apps Script (script.google.com/.../exec).
  * ===================================================================== */
-const POLA = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+// Format biasa  : https://script.google.com/macros/s/<ID>/exec
+// Akun Workspace: https://script.google.com/a/macros/<domain>/s/<ID>/exec
+const POLA = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/;
 
 function bacaBody(req) {
   return new Promise((resolve, reject) => {
@@ -27,9 +29,9 @@ function balas(res, status, obj) {
 
 module.exports = async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  const target = process.env.GAS_URL || url.searchParams.get('target') || '';
+  const target = String(process.env.GAS_URL || url.searchParams.get('target') || '').trim().replace(/\/+$/, '');
   if (!POLA.test(target)) {
-    return balas(res, 400, { success: false, message: 'URL Apps Script tidak valid. Cek GAS_URL di js/config.js (harus berakhiran /exec).' });
+    return balas(res, 400, { success: false, message: 'URL Apps Script tidak valid: "' + target.slice(0, 60) + (target.length > 60 ? '…' : '') + '". Harus diawali https://script.google.com/ dan berakhiran /exec (bukan /dev).' });
   }
 
   try {

@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  var GAS_URL = (window.APP_CONFIG || {}).GAS_URL || '';
+  var GAS_URL = String((window.APP_CONFIG || {}).GAS_URL || '').trim().replace(/\/+$/, '');
   var A = window.LHPAnalisa;
   var TOKEN_KEY = 'lhp_session';
 
