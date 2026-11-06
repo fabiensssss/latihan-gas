@@ -91,6 +91,9 @@
   // API
   // =================================================================
   var useResultMode = false;
+  // Proxy /api/gas hanya ada saat situs berjalan di Vercel (atau domain sendiri), bukan file lokal
+  var USE_PROXY = (window.APP_CONFIG || {}).USE_PROXY !== false &&
+    /^https?:$/.test(location.protocol) && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
   function newRid() {
     var a = new Uint8Array(16);
@@ -135,9 +138,24 @@
       body: JSON.stringify(body)
     };
 
-    // Mode cadangan: sebagian browser (mis. Firefox dengan pengaturan tertentu) mengirim ulang POST
-    // setelah redirect 302 Apps Script sehingga kena 405/CORS. Di mode ini POST tidak mengikuti
-    // redirect, lalu hasilnya diambil lewat GET ?action=result&id=<rid> (GET selalu aman).
+    // Jalur utama di Vercel: lewat proxy /api/gas (satu domain, tanpa CORS, redirect ditangani server)
+    if (USE_PROXY) {
+      return fetch('api/gas?target=' + encodeURIComponent(GAS_URL), opt)
+        .then(function (r) {
+          return r.json().catch(function () {
+            throw new Error('Proxy Vercel tidak merespons (status ' + r.status + '). Pastikan folder api ikut di-push.');
+          });
+        })
+        .catch(function (err) {
+          if (err instanceof TypeError) throw new Error('Tidak ada koneksi internet.');
+          throw err;
+        })
+        .then(cekHasil);
+    }
+
+    // Mode cadangan (tanpa proxy): sebagian browser mengirim ulang POST setelah redirect 302
+    // Apps Script sehingga kena 405/CORS. Di mode ini POST tidak mengikuti redirect, lalu
+    // hasilnya diambil lewat GET ?action=result&id=<rid>.
     var kirim = useResultMode
       ? fetch(GAS_URL, Object.assign({ redirect: 'manual' }, opt)).then(function () { return ambilHasil(body.rid); })
       : fetch(GAS_URL, Object.assign({ redirect: 'follow' }, opt)).then(function (r) {
@@ -149,15 +167,17 @@
           return ambilHasil(body.rid);
         });
 
-    return kirim.then(function (res) {
-      if (!res.success) {
-        if (res.code === 'AUTH') { logout(true); }
-        var e = new Error(res.message || 'Terjadi kesalahan');
-        e.code = res.code;
-        throw e;
-      }
-      return res.data;
-    });
+    return kirim.then(cekHasil);
+  }
+
+  function cekHasil(res) {
+    if (!res || !res.success) {
+      if (res && res.code === 'AUTH') { logout(true); }
+      var e = new Error((res && res.message) || 'Terjadi kesalahan');
+      e.code = res && res.code;
+      throw e;
+    }
+    return res.data;
   }
 
   // =================================================================
@@ -892,7 +912,15 @@
       warnings: p.warnings,
       sorotan: ($('#sorText').value || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean)
     };
-    if (a.arsip && a.file) payload.file = { name: a.file.name, base64: toBase64(a.file.buf) };
+    if (a.arsip && a.file) {
+      var b64 = toBase64(a.file.buf);
+      // Batas kiriman lewat Vercel ±4,5 MB; file besar tidak ikut diarsipkan (data tetap terkirim)
+      if (USE_PROXY && b64.length + JSON.stringify(payload).length > 4000000) {
+        toast('File Excel terlalu besar untuk diarsip otomatis; data tetap dipublish. Simpan file asli manual di Drive.');
+      } else {
+        payload.file = { name: a.file.name, base64: b64 };
+      }
+    }
     api('publish', payload).then(function (res) {
       toast('✔ Data ' + res.tanggal + ' berhasil dipublish.');
       delete state.reports[res.tanggal];
