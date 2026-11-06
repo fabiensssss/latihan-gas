@@ -3,48 +3,71 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#11602f">
+  <meta name="theme-color" content="#0b3322">
   <meta name="robots" content="noindex, nofollow">
-  <title>Infografis Laporan Harian Produksi</title>
+  <title>Laporan Harian Produksi BGA</title>
+  <link rel="icon" href="img/logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
 
   <!-- ============ LOGIN ============ -->
   <section id="login" class="login hidden">
     <form class="login-card" id="loginForm" autocomplete="off">
-      <div class="emblem" aria-hidden="true">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#11602f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 21V11"/><path d="M12 11C9 6 5 6 3 8c3 0 6 1 9 3z"/><path d="M12 11c3-5 7-5 9-3-3 0-6 1-9 3z"/><path d="M12 11c-1-4 0-7 2-8 0 3-1 6-2 8z"/>
-        </svg>
+      <div class="login-top">
+        <img src="img/logo.png" alt="Logo Bumitama Gunajaya Agro">
+        <h1>Laporan Harian Produksi</h1>
+        <p>PT Bumitama Gunajaya Agro</p>
       </div>
-      <h1>Laporan Harian Produksi</h1>
-      <p>Masukkan PIN untuk melihat laporan</p>
-      <input id="pin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="••••••" aria-label="PIN" required>
-      <button class="btn block" id="loginBtn" type="submit">Masuk</button>
-      <div class="err" id="loginErr" role="alert"></div>
+      <div class="login-body">
+        <label for="pin">PIN</label>
+        <input id="pin" class="pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="••••••" required>
+        <button class="btn block" id="loginBtn" type="submit">Masuk</button>
+        <div class="err" id="loginErr" role="alert"></div>
+      </div>
     </form>
   </section>
 
   <!-- ============ APLIKASI ============ -->
   <section id="app" class="hidden">
-    <header class="app-header">
-      <div class="bar">
-        <div class="title"><span class="t-full">Infografis Laporan Harian Produksi</span><span class="t-short">LH Produksi BGA</span><small>Bedah gap produksi per region &amp; estate</small></div>
-        <select id="datePick" class="date-pill" aria-label="Pilih tanggal laporan"></select>
+    <header class="hero">
+      <div class="hero-in">
+        <div class="brand">
+          <img src="img/logo.png" alt="Logo Bumitama Gunajaya Agro">
+          <div>
+            <h1>Laporan Harian Produksi BGA</h1>
+            <p>PT Bumitama Gunajaya Agro · Bedah gap per region &amp; estate</p>
+          </div>
+        </div>
+        <div class="datenav">
+          <button class="arrow" id="prevDate" type="button" aria-label="Tanggal sebelumnya">‹</button>
+          <div class="mid">
+            <small>Tanggal laporan</small>
+            <b id="dateLabel">–</b>
+            <select id="datePick" class="date-pill" aria-label="Pilih tanggal laporan"></select>
+          </div>
+          <button class="arrow" id="nextDate" type="button" aria-label="Tanggal berikutnya">›</button>
+        </div>
         <div class="user-box"><span id="userName"></span><button id="logoutBtn" type="button">Keluar</button></div>
       </div>
-      <nav class="tabs" id="tabs">
-        <button data-view="ringkasan" class="active" type="button">Ringkasan</button>
-        <button data-view="bedah" type="button">Bedah Gap</button>
-        <button data-view="drill" type="button">Drill-down</button>
-        <button data-view="admin" type="button" class="hidden" id="tabAdmin">Admin</button>
-      </nav>
+      <div class="kpi-strip" id="kpiStrip"></div>
     </header>
-    <main id="view"></main>
+
+    <div class="layout">
+      <aside class="side">
+        <h4>Laporan</h4>
+        <nav class="tabs" id="tabs">
+          <button data-view="ringkasan" class="active" type="button"><i>1</i>Ringkasan</button>
+          <button data-view="bedah" type="button"><i>2</i>Bedah Gap</button>
+          <button data-view="drill" type="button"><i>3</i>Drill-down</button>
+          <button data-view="admin" type="button" class="hidden" id="tabAdmin"><i>⚙</i>Admin</button>
+        </nav>
+      </aside>
+      <main id="view"></main>
+    </div>
   </section>
 
   <div id="toast" class="toast hidden" role="status"></div>
@@ -52,8 +75,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/parser.js?v=4"></script>
-  <script src="js/analisa.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/parser.js?v=6"></script>
+  <script src="js/analisa.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

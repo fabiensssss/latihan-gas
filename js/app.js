@@ -239,6 +239,22 @@
   $('#datePick').addEventListener('change', function () {
     loadReport(this.value);
   });
+  // state.dates terurut terbaru → terlama
+  $('#prevDate').addEventListener('click', function () {
+    var i = state.dates.indexOf(state.tanggal);
+    if (i >= 0 && i < state.dates.length - 1) loadReport(state.dates[i + 1]);
+  });
+  $('#nextDate').addEventListener('click', function () {
+    var i = state.dates.indexOf(state.tanggal);
+    if (i > 0) loadReport(state.dates[i - 1]);
+  });
+
+  function updateDateNav() {
+    var i = state.dates.indexOf(state.tanggal);
+    $('#dateLabel').textContent = state.tanggal ? tglPanjang(state.tanggal) : 'Belum ada data';
+    $('#prevDate').disabled = !(i >= 0 && i < state.dates.length - 1);
+    $('#nextDate').disabled = !(i > 0);
+  }
 
   function startApp() {
     $('#login').classList.add('hidden');
@@ -267,11 +283,13 @@
       return '<option value="' + t + '">' + esc(tglPanjang(t)) + '</option>';
     }).join('') || '<option>Belum ada data</option>';
     if (state.tanggal) sel.value = state.tanggal;
+    updateDateNav();
   }
 
   function loadReport(t) {
     state.tanggal = t;
     $('#datePick').value = t;
+    updateDateNav();
     if (state.reports[t]) {
       state.model = A.build(state.reports[t]);
       render();
@@ -298,6 +316,7 @@
 
   function render() {
     destroyCharts();
+    renderStrip();
     var v = state.view;
     if (v === 'admin') return renderAdmin();
     if (!state.model) {
@@ -309,6 +328,52 @@
     if (v === 'drill') return renderDrill();
   }
 
+  // ---------- Kartu KPI di header (selalu tampil) ----------
+  function sparkSvg(seri, budget) {
+    if (!seri || seri.length < 2) return '';
+    var w = 200, h = 44, vals = seri.map(function (s) { return s.ton; });
+    var max = Math.max.apply(null, vals.concat([budget || 0])) * 1.08 || 1;
+    var x = function (i) { return (i / (seri.length - 1)) * (w - 6) + 3; };
+    var y = function (v) { return h - 4 - (v / max) * (h - 8); };
+    var pts = vals.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ');
+    var last = vals[vals.length - 1];
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' +
+      (budget ? '<line x1="0" x2="' + w + '" y1="' + y(budget).toFixed(1) + '" y2="' + y(budget).toFixed(1) + '" stroke="#f2a516" stroke-width="1.5" stroke-dasharray="4 4"/>' : '') +
+      '<polyline points="' + pts + '" fill="none" stroke="#1e8a4f" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + x(vals.length - 1).toFixed(1) + '" cy="' + y(last).toFixed(1) + '" r="3" fill="#156b3f"/></svg>';
+  }
+
+  function barCls(v) { return v >= 1 ? 'ok' : v >= (state.model ? state.model.settings.ACH_KUNING : 0.9) ? 'warn' : 'bad'; }
+  function kbar(v) { return '<div class="kbar"><i class="' + barCls(v) + '" style="width:' + Math.max(3, Math.min(100, (v || 0) * 100)).toFixed(0) + '%"></i></div>'; }
+
+  function renderStrip() {
+    var el = $('#kpiStrip');
+    var m = state.model;
+    if (!m || !m.bga) { el.innerHTML = ''; return; }
+    var b = m.bga;
+    var seri = (m.series.BGA || []).filter(function (s) { return s.ton > 0; });
+    var pill = isNum(b.var_hl) ? '<span class="pill ' + (b.var_hl < 0 ? 'bad' : 'ok') + '">' + (b.var_hl < 0 ? '▼ ' : '▲ ') +
+      f0(Math.abs(b.var_hl)) + ' t (' + pctS(b.var_pct) + ')</span>' : '';
+    var S = m.settings;
+    el.innerHTML =
+      '<div class="kcard">' + sparkSvg(seri, b.budget_harian) + '<div class="t">Produksi hari ini</div>' +
+        '<div class="v">' + f0(b.prod_hi) + '<span>ton</span>' + pill + '</div>' +
+        '<div class="d">' + pct(b.ach_harian) + ' dari budget harian ' + f0(b.budget_harian) + ' ton</div>' + kbar(b.ach_harian) + '</div>' +
+      '<div class="kcard"><div class="t">Produksi s.d. hari ini</div><div class="v">' + f0(b.sd_hi) + '<span>ton</span></div>' +
+        '<div class="d">' + pct(b.ach_bi) + ' dari budget, growth ' + pctS(b.growth_bi) + '</div>' + kbar(b.ach_bi) + '</div>' +
+      '<div class="kcard"><div class="t">Produksi s.d. bulan ini</div><div class="v">' + f0(b.sd_bi) + '<span>ton</span></div>' +
+        '<div class="d">' + pct(b.ach_sdbi) + ' dari budget, growth ' + pctS(b.growth_sdbi) + '</div>' + kbar(b.ach_sdbi) + '</div>' +
+      '<div class="kcard"><div class="t">Mutu panen dan pengiriman</div><div class="mutu">' +
+        '<div><b class="' + (b.hke_pct < S.HKE_MIN ? 'bad' : '') + '">' + f1(b.hke_pct) + '%</b><small>HKE panen</small></div>' +
+        '<div><b>' + f1(b.akp) + '</b><small>AKP</small></div>' +
+        '<div><b class="' + (b.pks_ge18 > S.PKS_GE18_MAX ? 'bad' : '') + '">' + pct(b.pks_ge18) + '</b><small>TBS &gt; 18:00</small></div>' +
+      '</div></div>';
+  }
+
+  function pageHead(no, judul, sub) {
+    return '<div class="page-h"><div class="big-no">' + no + '</div><div><h2>' + esc(judul) + '</h2><p>' + sub + '</p></div></div>';
+  }
+
   // ---------- Plugin Chart.js: label nilai di atas batang ----------
   var valueLabels = {
     id: 'valueLabels',
@@ -316,8 +381,9 @@
       if (!opts || !opts.fmt) return;
       var ctx = chart.ctx;
       ctx.save();
-      ctx.font = '600 11px Inter, sans-serif';
-      ctx.fillStyle = '#17231a';
+      var nBar = (chart.data.labels || []).length;
+      ctx.font = '700 ' + (nBar > 8 ? 10.5 : 12.5) + 'px "Barlow Semi Condensed", sans-serif';
+      ctx.fillStyle = '#2c3d34';
       ctx.textAlign = 'center';
       chart.data.datasets.forEach(function (ds, i) {
         if (ds.type === 'line' || ds.noLabel) return;
@@ -336,6 +402,8 @@
 
   function newChart(canvas, cfg) {
     if (!window.Chart) return null;
+    window.Chart.defaults.font.family = '"Plus Jakarta Sans", system-ui, sans-serif';
+    window.Chart.defaults.color = '#617268';
     cfg.plugins = (cfg.plugins || []).concat([valueLabels]);
     var c = new window.Chart(canvas, cfg);
     charts.push(c);
@@ -372,38 +440,35 @@
 
     var regGapNeg = m.rank.regionGap.filter(function (r) { return r.gap < 0; });
 
-    var html = '' +
+    var html = pageHead(1, 'Ringkasan produksi harian', esc(tglPanjang(t)) + ' · HKE ' + f0(b.hke_bulan) + ' <span class="badge-unit">ton</span>') +
       '<div class="lead">Produksi <b>' + esc(tglPanjang(t)) + '</b>: <b>' + f0(b.prod_hi) + ' ton</b>, ' +
       '<b>' + pct(b.ach_harian) + '</b> dari budget harian (gap <span class="' + (b.gap < 0 ? 'neg' : 'pos') + '">' + sgn(b.gap) + ' ton</span>). ' +
       regGapNeg.length + ' dari ' + m.regions.length + ' region di bawah budget harian' +
       (regGapNeg.length ? '; terbesar ' + esc(regGapNeg.slice(0, 2).map(function (r) { return r.unit; }).join(' & ')) + '.' : '.') +
       ' <a href="#" data-go="bedah">Lihat bedah gap →</a></div>' +
 
-      '<div class="grid g3">' +
-        kpiCard('1. Produksi hari ini', b.ach_harian, 'Dari Budget Harian', b.prod_hi,
-          ['<span class="' + (b.var_hl < 0 ? 'neg' : 'pos') + '">' + naikTurun + ' ton dari hari kemarin</span> (' + f0(b.prod_hl) + ' ton)',
-            'Budget ' + esc(namaBulan(t)) + ': ' + f0(b.budget_bulan) + ' ton · harian ' + f0(b.budget_harian) + ' ton']) +
-        kpiCard('2. Produksi ' + bln + (hkeJalan ? ' (' + hkeJalan + ' HKE)' : ''), b.ach_bi, 'Dari Budget S.d Hari Ini', b.sd_hi,
-          ['Rata-rata produksi harian ' + f0(b.rata2) + ' ton/hari',
-            '<span class="' + (b.growth_bi < 0 ? 'neg' : 'pos') + '">' + (b.growth_bi < 0 ? 'Turun ' : 'Tumbuh ') + pct(Math.abs(b.growth_bi)) + ' dari aktual ' + esc(namaBulan(t)) + ' tahun lalu</span>']) +
-        kpiCard('3. Produksi s.d. ' + bln, b.ach_sdbi, 'Dari Budget S.d Bln Ini', b.sd_bi,
-          ['<span class="' + (b.growth_sdbi < 0 ? 'neg' : 'pos') + '">' + (b.growth_sdbi < 0 ? 'Turun ' : 'Tumbuh ') + pct(Math.abs(b.growth_sdbi)) + ' dari aktual tahun lalu</span>']) +
+      '<div class="minis">' +
+        '<div class="mini ' + (b.gap < 0 ? 'bad' : 'ok') + '"><div class="l">Gap vs budget harian</div><div class="v">' + sgn(b.gap) + ' t</div><div class="s">' + pct(b.ach_harian) + ' dari ' + f0(b.budget_harian) + ' ton</div></div>' +
+        '<div class="mini ' + (b.var_hl < 0 ? 'bad' : 'ok') + '"><div class="l">Vs hari lalu</div><div class="v">' + sgn(b.var_hl) + ' t</div><div class="s">HL ' + f0(b.prod_hl) + ' ton</div></div>' +
+        '<div class="mini"><div class="l">Rata-rata harian' + (hkeJalan ? ' (' + hkeJalan + ' HKE)' : '') + '</div><div class="v">' + f0(b.rata2) + ' t</div><div class="s">Budget ' + esc(namaBulan(t)) + ' ' + f0(b.budget_bulan) + ' ton</div></div>' +
+        '<div class="mini ' + (regGapNeg.length ? 'warn' : 'ok') + '"><div class="l">Region di bawah budget</div><div class="v">' + regGapNeg.length + ' / ' + m.regions.length + '</div><div class="s">' + esc(regGapNeg.slice(0, 3).map(function (r) { return r.unit; }).join(', ') || '-') + '</div></div>' +
+        '<div class="mini"><div class="l">Luas panen</div><div class="v">' + f0(b.ha_aktual) + ' Ha</div><div class="s">' + sgn(b.ha_var) + ' Ha dari normal</div></div>' +
       '</div>' +
 
-      '<div class="grid g3" style="margin-top:14px">' +
-        '<div class="card"><div class="card-h">4. Capaian produksi harian</div><div class="card-b"><div class="chart-box"><canvas id="chHarian"></canvas></div>' +
+      '<div class="grid g3" style="margin-top:16px">' +
+        '<div class="card"><div class="card-h"><span class="no">A</span>Capaian produksi harian</div><div class="card-b"><div class="chart-box"><canvas id="chHarian"></canvas></div>' +
           '<div class="legend-line"><span class="' + (b.gap < 0 ? 'neg' : 'pos') + '"><b>' + pct(b.ach_harian) + ' dari budget</b> · selisih ' + sgn(b.gap) + ' ton</span></div></div></div>' +
-        '<div class="card"><div class="card-h">5. Capaian budget s.d. ' + esc(namaBulan(t)) + '</div><div class="card-b"><div class="chart-box"><canvas id="chAch"></canvas></div>' +
-          '<div class="legend-line"><span><i style="background:#1b7a3d"></i>Capaian ≥100%</span><span><i style="background:#ef5350"></i>Capaian &lt;100%</span><span class="neg">— Target 100%</span></div></div></div>' +
-        '<div class="card"><div class="card-h">6. Growth produksi s.d. ' + esc(namaBulan(t)) + '</div><div class="card-b"><div class="chart-box"><canvas id="chGrowth"></canvas></div>' +
-          '<div class="legend-line"><span><i style="background:#1b7a3d"></i>Growth ≥0%</span><span><i style="background:#ef5350"></i>Growth &lt;0%</span><span class="neg">— Threshold 0%</span></div></div></div>' +
+        '<div class="card"><div class="card-h"><span class="no">B</span>Capaian budget s.d. ' + esc(namaBulan(t)) + '</div><div class="card-b"><div class="chart-box"><canvas id="chAch"></canvas></div>' +
+          '<div class="legend-line"><span><i style="background:#1e8a4f"></i>Capaian ≥100%</span><span><i style="background:#d4472f"></i>Capaian &lt;100%</span><span class="neg">— Target 100%</span></div></div></div>' +
+        '<div class="card"><div class="card-h"><span class="no">C</span>Growth produksi s.d. ' + esc(namaBulan(t)) + '</div><div class="card-b"><div class="chart-box"><canvas id="chGrowth"></canvas></div>' +
+          '<div class="legend-line"><span><i style="background:#1e8a4f"></i>Growth ≥0%</span><span><i style="background:#d4472f"></i>Growth &lt;0%</span><span class="neg">— Threshold 0%</span></div></div></div>' +
       '</div>' +
 
-      '<div class="grid g2" style="margin-top:14px">' +
+      '<div class="grid g2" style="margin-top:16px">' +
         cardPanen(m) + cardPusingan(m) + cardRestan(m) + cardHke(m) +
       '</div>' +
 
-      '<div class="card sorotan" style="margin-top:14px"><div class="card-h">★ Sorotan utama' +
+      '<div class="card sorotan" style="margin-top:16px"><div class="card-h"><span class="no">★</span>Sorotan utama' +
         (m.sorotanManual.length ? '' : '<span class="right">disusun otomatis</span>') + '</div><div class="card-b"><ol class="points">' +
         sor.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ol></div></div>';
 
@@ -416,7 +481,7 @@
       type: 'bar',
       data: {
         labels: ['Budget harian', 'Hari lalu', 'Hari ini'],
-        datasets: [{ data: [b.budget_harian, b.prod_hl, b.prod_hi], backgroundColor: ['#1565c0', '#f57c00', '#0c4a24'], borderRadius: 4 }]
+        datasets: [{ data: [b.budget_harian, b.prod_hl, b.prod_hi], backgroundColor: ['#a7cdb6', '#f2a516', '#156b3f'], borderRadius: 4 }]
       },
       options: baseOpts({ fmt: f0, legend: false, yTitle: 'Ton' })
     });
@@ -427,20 +492,20 @@
       data: {
         labels: regs.map(function (r) { return r.unit.replace('Reg ', ''); }),
         datasets: [{ data: regs.map(function (r) { return Math.round(r.ach_sdbi * 100); }),
-          backgroundColor: regs.map(function (r) { return Math.round(r.ach_sdbi * 100) >= 100 ? '#1b7a3d' : '#ef5350'; }), borderRadius: 3 }]
+          backgroundColor: regs.map(function (r) { return Math.round(r.ach_sdbi * 100) >= 100 ? '#1e8a4f' : '#d4472f'; }), borderRadius: 3 }]
       },
       options: baseOpts({ fmt: function (v) { return v + '%'; }, legend: false, yTitle: '%', min: 0, max: 140 }),
-      plugins: [lineAt(100, '#d7261e')]
+      plugins: [lineAt(100, '#c03b26')]
     });
     newChart($('#chGrowth'), {
       type: 'bar',
       data: {
         labels: regs.map(function (r) { return r.unit.replace('Reg ', ''); }),
         datasets: [{ data: regs.map(function (r) { return Math.round(r.growth_sdbi * 100); }),
-          backgroundColor: regs.map(function (r) { return Math.round(r.growth_sdbi * 100) >= 0 ? '#1b7a3d' : '#ef5350'; }), borderRadius: 3 }]
+          backgroundColor: regs.map(function (r) { return Math.round(r.growth_sdbi * 100) >= 0 ? '#1e8a4f' : '#d4472f'; }), borderRadius: 3 }]
       },
       options: baseOpts({ fmt: function (v) { return v + '%'; }, legend: false, yTitle: '%' }),
-      plugins: [lineAt(0, '#d7261e')]
+      plugins: [lineAt(0, '#c03b26')]
     });
   }
 
@@ -456,9 +521,9 @@
         valueLabels: { fmt: o.noLabels ? null : o.fmt }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, maxRotation: 0, autoSkip: false } },
         y: { beginAtZero: true, min: o.min, max: o.max, grace: '12%', title: { display: !!o.yTitle, text: o.yTitle, font: { size: 11 } },
-          ticks: { font: { size: 11 }, callback: function (v) { return Number(v).toLocaleString('id-ID'); } }, grid: { color: '#edf2ec' } }
+          ticks: { font: { size: 11 }, callback: function (v) { return Number(v).toLocaleString('id-ID'); } }, grid: { color: '#e9efeb' } }
       }
     };
   }
@@ -545,7 +610,7 @@
     var filters = ['Semua', 'Kalteng', 'Kalbar'].concat(m.mdo.map(function (x) { return x.unit; }));
 
     var limit = isReg || s.showAll ? 999 : 15;
-    var html = '' +
+    var html = pageHead(2, 'Bedah gap produksi', 'Siapa yang paling jauh dari budget harian dan paling turun dari kemarin, beserta faktornya') +
       '<div class="lead">Gap BGA hari ini <b class="' + (b.gap < 0 ? 'neg' : 'pos') + '">' + sgn(b.gap) + ' ton</b> (' + pct(b.ach_harian) + ' dari budget harian ' + f0(b.budget_harian) + ' ton). ' +
       '<b>' + neg.length + ' dari ' + m.regions.length + '</b> region di bawah budget' +
       (top2.length ? '; <b>' + esc(top2.map(function (r) { return r.unit; }).join(' & ')) + '</b> menyumbang ' + pct(top2Share) + ' dari total kekurangan ' + f0(-totNeg) + ' ton.' : '.') + '</div>' +
@@ -685,7 +750,8 @@
     var m = state.model, d = state.drill;
     if (d.estate && m.by[d.estate]) return renderEstate(m.by[d.estate]);
 
-    var crumb = '<div class="crumb"><button data-c="root">BGA</button>' +
+    var crumb = pageHead(3, 'Drill-down region & estate', 'Tabel lengkap gaya Excel · klik baris untuk masuk lebih dalam') +
+      '<div class="crumb"><button data-c="root">BGA</button>' +
       (d.region ? ' › <span>' + esc(d.region) + '</span>' : '') + '</div>';
     var body, judul, sumRows;
 
@@ -751,9 +817,9 @@
       (e.var_hl < 0 ? 'turun ' : 'naik ') + f0(Math.abs(e.var_hl)) + ' ton dari kemarin.' +
       (e.shareGap > 0 ? ' Menyumbang ' + pct(e.shareGap) + ' dari kekurangan ' + esc(e.parent) + '.' : '') + '</div>' +
       '<div class="grid g2">' +
-        '<div class="card"><div class="card-h">Tren produksi harian ' + esc(namaBulan(m.tanggal)) + '</div><div class="card-b"><div class="chart-box tall"><canvas id="chTrend"></canvas></div></div></div>' +
-        '<div class="card"><div class="card-h">Faktor penyebab</div><div class="card-b"><div class="chips">' + chipsHtml(e.faktor, 'Tidak ada faktor operasional menonjol') + '</div>' +
-          '<div class="tiles" style="margin-top:14px">' +
+        '<div class="card"><div class="card-h"><span class="no">A</span>Tren produksi harian ' + esc(namaBulan(m.tanggal)) + '</div><div class="card-b"><div class="chart-box tall"><canvas id="chTrend"></canvas></div></div></div>' +
+        '<div class="card"><div class="card-h"><span class="no">B</span>Faktor penyebab</div><div class="card-b"><div class="chips">' + chipsHtml(e.faktor, 'Tidak ada faktor operasional menonjol') + '</div>' +
+          '<div class="tiles" style="margin-top:16px">' +
             tile('% HKE panen', f1(e.hke_pct) + '%', e.hke_pct > 0 && e.hke_pct < S.HKE_MIN) +
             tile('Ha panen normal', f0(e.ha_normal)) +
             tile('Ha panen aktual', f0(e.ha_aktual), e.ha_var < 0) +
@@ -768,7 +834,7 @@
             tile('Capaian s.d. bulan', pct(e.ach_sdbi)) +
           '</div></div></div>' +
       '</div>' +
-      '<div class="table-wrap" style="margin-top:14px"><table class="xl">' + XL_HEAD + '<tbody>' + xlRow(m.by[e.parent], { sum: true }) + xlRow(e) + '</tbody></table></div>';
+      '<div class="table-wrap" style="margin-top:16px"><table class="xl">' + XL_HEAD + '<tbody>' + xlRow(m.by[e.parent], { sum: true }) + xlRow(e) + '</tbody></table></div>';
 
     $('[data-c="root"]').addEventListener('click', function () { state.drill = { region: null, estate: null, filter: 'Semua' }; render(); });
     $('[data-c="reg"]').addEventListener('click', function () { state.drill.estate = null; render(); });
@@ -779,9 +845,9 @@
         labels: seri.map(function (s) { return Number(s.tanggal.slice(8)); }),
         datasets: [
           { type: 'bar', label: 'Produksi (ton)', data: seri.map(function (s) { return Math.round(s.ton); }),
-            backgroundColor: seri.map(function (s) { return s.tanggal === m.tanggal ? '#0c4a24' : '#7fbf8a'; }), borderRadius: 3, order: 2 },
+            backgroundColor: seri.map(function (s) { return s.tanggal === m.tanggal ? '#156b3f' : '#a7cdb6'; }), borderRadius: 3, order: 2 },
           { type: 'line', label: 'Budget harian', data: seri.map(function () { return Math.round(e.budget_harian); }),
-            borderColor: '#d7261e', borderDash: [5, 4], borderWidth: 2, pointRadius: 0, order: 1 }
+            borderColor: '#f2a516', borderDash: [5, 4], borderWidth: 2, pointRadius: 0, order: 1 }
         ]
       },
       options: Object.assign(baseOpts({ fmt: f0, legend: true, yTitle: 'Ton', noLabels: seri.length > 12 }), {})
@@ -794,14 +860,14 @@
   function renderAdmin() {
     if (!state.session || state.session.role !== 'Admin') { setView('ringkasan'); return; }
     var a = state.admin;
-    var html = '<div class="grid g2">' +
-      '<div class="card" style="grid-column:1/-1"><div class="card-h">Upload data harian</div><div class="card-b">' +
+    var html = pageHead('⚙', 'Admin', 'Upload data harian, kelola pengguna, dan riwayat') + '<div class="grid g2">' +
+      '<div class="card" style="grid-column:1/-1"><div class="card-h"><span class="no">1</span>Upload data harian</div><div class="card-b">' +
         '<label class="drop" id="drop"><input type="file" id="fileIn" accept=".xlsx,.xlsm">' +
         '<b>Pilih atau seret file "LH Produksi BGA" (.xlsx)</b><div class="small muted" style="margin-top:6px">File dibaca di browser ini; yang dikirim ke server hanya angka hasil bacaan (dan arsip file bila dicentang).</div></label>' +
         '<div id="preview">' + (a.parsed ? previewHtml() : '') + '</div>' +
       '</div></div>' +
-      '<div class="card"><div class="card-h">Pengguna &amp; PIN</div><div class="card-b" id="usersBox">' + loadingHtml('Memuat pengguna…') + '</div></div>' +
-      '<div class="card"><div class="card-h">Riwayat upload</div><div class="card-b" id="logBox">' + loadingHtml('Memuat riwayat…') + '</div></div>' +
+      '<div class="card"><div class="card-h"><span class="no">2</span>Pengguna &amp; PIN</div><div class="card-b" id="usersBox">' + loadingHtml('Memuat pengguna…') + '</div></div>' +
+      '<div class="card"><div class="card-h"><span class="no">3</span>Riwayat upload</div><div class="card-b" id="logBox">' + loadingHtml('Memuat riwayat…') + '</div></div>' +
       '</div>';
     $('#view').innerHTML = html;
     bindUpload();
